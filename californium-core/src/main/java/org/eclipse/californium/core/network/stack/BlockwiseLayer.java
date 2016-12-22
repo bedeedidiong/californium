@@ -172,7 +172,7 @@ public class BlockwiseLayer extends AbstractLayer {
 				// size negotiation but actually want to retrieve the whole body by means of
 				// a transparent blockwise transfer.
 				LOGGER.fine("outbound request contains block2 option, creating random-access blockwise status");
-				addRandomAccessBlock2Status(exchange, request, block2);
+				addRandomAccessBlock2Status(exchange, request);
 
 			} else if (requiresBlockwise(request)) {
 				// This must be a large POST or PUT request
@@ -234,14 +234,12 @@ public class BlockwiseLayer extends AbstractLayer {
 
 		if (isTransparentBlockwiseHandlingEnabled()) {
 
-			BlockOption block1 = request.getOptions().getBlock1();
 			BlockOption block2 = request.getOptions().getBlock2();
 
-			if (block1 != null) {
+			if (request.getOptions().hasBlock1()) {
 
 				// This is a large POST or PUT request
-				LOGGER.log(Level.FINE, "inbound request contains block1 option {0}", block1);
-				handleInboundBlockwiseUpload(exchange, request, block1);
+				handleInboundBlockwiseUpload(exchange, request);
 
 			} else if (block2 != null) {
 
@@ -258,7 +256,7 @@ public class BlockwiseLayer extends AbstractLayer {
 
 				} else {
 					// The peer wants to retrieve the next block of a blockwise transfer
-					handleInboundRequestForNextBlock(exchange, request, block2, key, status);
+					handleInboundRequestForNextBlock(exchange, request, key, status);
 				}
 
 			} else {
@@ -274,7 +272,7 @@ public class BlockwiseLayer extends AbstractLayer {
 		}
 	}
 
-	private void handleInboundBlockwiseUpload(final Exchange exchange, final Request request, final BlockOption block1) {
+	private void handleInboundBlockwiseUpload(final Exchange exchange, final Request request) {
 
 		if (requestExceedsMaxBodySize(request)) {
 
@@ -286,6 +284,8 @@ public class BlockwiseLayer extends AbstractLayer {
 
 		} else {
 
+			BlockOption block1 = request.getOptions().getBlock1();
+			LOGGER.log(Level.FINE, "inbound request contains block1 option {0}", block1);
 			KeyUri key = getKey(exchange, request);
 			Block1BlockwiseStatus status = getInboundBlock1Status(key, exchange, request);
 
@@ -299,15 +299,15 @@ public class BlockwiseLayer extends AbstractLayer {
 						"peer sent wrong block, expected no. {0} but got {1}. Responding with 4.08 (Request Entity Incomplete)",
 						new Object[]{status.getCurrentNum(), block1.getNum()});
 
-				sendBlock1ErrorResponse(key, exchange, request, block1, ResponseCode.REQUEST_ENTITY_INCOMPLETE, "wrong block number");
+				sendBlock1ErrorResponse(key, exchange, request, ResponseCode.REQUEST_ENTITY_INCOMPLETE, "wrong block number");
 
 			} else if (!status.hasContentFormat(request.getOptions().getContentFormat())) {
 
-				sendBlock1ErrorResponse(key, exchange, request, block1, ResponseCode.REQUEST_ENTITY_INCOMPLETE, "unexpected Content-Format");
+				sendBlock1ErrorResponse(key, exchange, request, ResponseCode.REQUEST_ENTITY_INCOMPLETE, "unexpected Content-Format");
 
 			} else if (!status.addBlock(request.getPayload())) {
 
-				sendBlock1ErrorResponse(key, exchange, request, block1, ResponseCode.REQUEST_ENTITY_TOO_LARGE,
+				sendBlock1ErrorResponse(key, exchange, request, ResponseCode.REQUEST_ENTITY_TOO_LARGE,
 						"body exceeded expected size " + status.getBufferSize());
 
 			} else {
@@ -356,9 +356,10 @@ public class BlockwiseLayer extends AbstractLayer {
 		}
 	}
 
-	private void sendBlock1ErrorResponse(final KeyUri key, final Exchange exchange, final Request request, final BlockOption block1,
+	private void sendBlock1ErrorResponse(final KeyUri key, final Exchange exchange, final Request request,
 			final ResponseCode errorCode, final String message) {
 
+		BlockOption block1 = request.getOptions().getBlock1();
 		Response error = Response.createResponse(request, errorCode);
 		error.getOptions().setBlock1(block1.getSzx(), block1.isM(), block1.getNum());
 		error.setPayload(message);
@@ -368,10 +369,11 @@ public class BlockwiseLayer extends AbstractLayer {
 	}
 
 	private void handleInboundRequestForNextBlock(final Exchange exchange, final Request request,
-			final BlockOption block2, final KeyUri key, final Block2BlockwiseStatus status) {
+			final KeyUri key, final Block2BlockwiseStatus status) {
 
 		synchronized (status) {
 
+			BlockOption block2 = request.getOptions().getBlock2();
 			Response block = status.getNextResponseBlock(block2);
 			if (status.isComplete()) {
 				// clean up blockwise status
@@ -503,14 +505,12 @@ public class BlockwiseLayer extends AbstractLayer {
 
 			} else {
 
-				BlockOption block = response.getOptions().getBlock1();
-				if (block != null) {
-					handleBlock1Response(exchange, response, block);
+				if (response.getOptions().hasBlock1()) {
+					handleBlock1Response(exchange, response);
 				}
 
-				block = response.getOptions().getBlock2();
-				if (block != null) {
-					handleBlock2Response(exchange, response, block);
+				if (response.getOptions().hasBlock2()) {
+					handleBlock2Response(exchange, response);
 				}
 			}
 
@@ -526,10 +526,10 @@ public class BlockwiseLayer extends AbstractLayer {
 	 * 
 	 * @param exchange The message exchange that the response is part of.
 	 * @param response The response received from the peer.
-	 * @param block1 The block1 option from the response.
 	 */
-	private void handleBlock1Response(final Exchange exchange, final Response response, final BlockOption block1) {
+	private void handleBlock1Response(final Exchange exchange, final Response response) {
 
+		BlockOption block1 = response.getOptions().getBlock1();
 		LOGGER.log(Level.FINER, "received response acknowledging block1 {0}", block1);
 
 		final KeyUri key = getKey(exchange, response);
@@ -544,7 +544,7 @@ public class BlockwiseLayer extends AbstractLayer {
 			if (block1.isM()) {
 				// server wants us to send the remaining blocks before returning
 				// its response
-				sendNextBlock(exchange, response, block1, key, status);
+				sendNextBlock(exchange, response, key, status);
 
 			} else {
 				// this means that the response already contains the server's final
@@ -558,7 +558,7 @@ public class BlockwiseLayer extends AbstractLayer {
 				// to keep track of this POST/PUT request
 				// we therefore go on sending all pending blocks and then return the
 				// response received for the last block
-				sendNextBlock(exchange, response, block1, key, status);
+				sendNextBlock(exchange, response, key, status);
 			}
 
 		} else if (!response.getOptions().hasBlock2()) {
@@ -579,12 +579,11 @@ public class BlockwiseLayer extends AbstractLayer {
 		}
 	}
 
-	private void sendNextBlock(final Exchange exchange, final Response response, final BlockOption block1,
-			final KeyUri key, final Block1BlockwiseStatus status) {
+	private void sendNextBlock(final Exchange exchange, final Response response, final KeyUri key, final Block1BlockwiseStatus status) {
 
-		// Send next block
+		BlockOption block1 = response.getOptions().getBlock1();
 		int currentSize = status.getCurrentSize();
-		// Define new size of the block depending of preferred size block
+		// adjust block size to peer's preference
 		int newSize, newSzx;
 		if (block1.getSize() < currentSize) {
 			newSize = block1.getSize();
@@ -610,9 +609,8 @@ public class BlockwiseLayer extends AbstractLayer {
 	 * 
 	 * @param exchange The message exchange that the response is part of.
 	 * @param response The response received from the peer.
-	 * @param block2 The block2 option from the response.
 	 */
-	private void handleBlock2Response(final Exchange exchange, final Response response, final BlockOption block2) {
+	private void handleBlock2Response(final Exchange exchange, final Response response) {
 
 		if (responseExceedsMaxBodySize(response)) {
 			LOGGER.log(Level.FINE, "requested resource body exceeds max buffer size [{0}], aborting request", maxResourceBodySize);
@@ -620,6 +618,7 @@ public class BlockwiseLayer extends AbstractLayer {
 			return;
 		}
 
+		BlockOption block2 = response.getOptions().getBlock2();
 		KeyUri key = getKey(exchange, response);
 
 		synchronized (exchange) {
@@ -894,11 +893,11 @@ public class BlockwiseLayer extends AbstractLayer {
 		}
 	}
 
-	private KeyUri addRandomAccessBlock2Status(final Exchange exchange, final Request request, final BlockOption block2) {
+	private KeyUri addRandomAccessBlock2Status(final Exchange exchange, final Request request) {
 
 		KeyUri key = getKey(exchange, request);
 		synchronized (block2Transfers) {
-			Block2BlockwiseStatus status = Block2BlockwiseStatus.forRandomAccessRequest(exchange, request, block2);
+			Block2BlockwiseStatus status = Block2BlockwiseStatus.forRandomAccessRequest(exchange, request);
 			block2Transfers.put(key, status);
 			addBlock2CleanUpObserver(request, key);
 			LOGGER.log(Level.FINE, "created tracker for random access block2 retrieval {0}, transfers in progress: {1}",

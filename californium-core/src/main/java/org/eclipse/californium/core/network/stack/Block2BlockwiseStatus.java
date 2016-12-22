@@ -100,8 +100,14 @@ final class Block2BlockwiseStatus extends BlockwiseStatus {
 	 * @param request The request for retrieving the block.
 	 * @param block2 The options for retrieving the block.
 	 * @return The tracker.
+	 * @throws IllegalArgumentException if the request does not contain a block2 option.
 	 */
-	static Block2BlockwiseStatus forRandomAccessRequest(final Exchange exchange, final Request request, final BlockOption block2) {
+	static Block2BlockwiseStatus forRandomAccessRequest(final Exchange exchange, final Request request) {
+
+		BlockOption block2 = request.getOptions().getBlock2();
+		if (block2 == null) {
+			throw new IllegalArgumentException("request must contain block2 option");
+		}
 		int contentFormat = request.getOptions().getContentFormat();
 		Block2BlockwiseStatus status = new Block2BlockwiseStatus(0, contentFormat);
 		status.randomAccess = true;
